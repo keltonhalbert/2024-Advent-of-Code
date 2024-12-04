@@ -16,6 +16,14 @@ constexpr lvl_int_t SAFE_LVL_ABS_DIFF_MIN = 1;
 constexpr lvl_int_t SAFE_LVL_ABS_DIFF_MAX = 3;
 constexpr char DELIMITER = ' ';
 
+void print_arr(const lvl_vec_t& rpt) {
+    printf("{ ");
+    for (std::size_t idx = 0; idx < rpt.size(); ++idx) {
+        printf("%d, ", rpt[idx]);
+    }
+    printf("}\n");
+}
+
 [[nodiscard]] static lvl_vec_t parse_report(const std::string& line) noexcept {
     lvl_vec_t report;
     std::size_t delim_idx;
@@ -54,77 +62,134 @@ constexpr char DELIMITER = ' ';
     }
 }
 
-[[nodiscard]] static inline lvl_int_t is_safe(const lvl_int_t lvl1, 
-                                              const lvl_int_t lvl2, 
-                                              const lvl_int_t lvl3) {
-    const lvl_int_t diff1 = lvl1 - lvl2;
-    const lvl_int_t diff2 = lvl2 - lvl3;
-    const lvl_int_t diff3 = lvl1 - lvl3;
-    const bool is_neg1 = std::signbit(diff1);
-    const bool is_neg2 = std::signbit(diff2);
-    const lvl_int_t abs_diff1 = std::abs(diff1);
-    const lvl_int_t abs_diff2 = std::abs(diff2);
-    const lvl_int_t abs_diff3 = std::abs(diff3);
-    lvl_int_t n_errs = 0;
+[[nodiscard]] static inline bool is_safe(const lvl_int_t lvl1, 
+                                         const lvl_int_t lvl2, 
+                                         const lvl_int_t lvl3) {
+    const lvl_int_t diff_left = lvl1 - lvl2;
+    const lvl_int_t diff_right = lvl2 - lvl3;
+    const bool is_neg1 = std::signbit(diff_left);
+    const bool is_neg2 = std::signbit(diff_right);
+    const lvl_int_t abs_diff_left = std::abs(diff_left);
+    const lvl_int_t abs_diff_right = std::abs(diff_right);
     
     const bool is_monotonic = (is_neg1 == is_neg2);
-    const bool is_spikey = (
-        (abs_diff1 > SAFE_LVL_ABS_DIFF_MAX) || 
-        (abs_diff1 < SAFE_LVL_ABS_DIFF_MIN) || 
-        (abs_diff2 > SAFE_LVL_ABS_DIFF_MAX) || 
-        (abs_diff2 < SAFE_LVL_ABS_DIFF_MIN) 
+    const bool unsafe_rate = (
+        (abs_diff_left > SAFE_LVL_ABS_DIFF_MAX) || 
+        (abs_diff_left < SAFE_LVL_ABS_DIFF_MIN) || 
+        (abs_diff_right > SAFE_LVL_ABS_DIFF_MAX) || 
+        (abs_diff_right < SAFE_LVL_ABS_DIFF_MIN) 
     );
-    const bool is_spikey_no_mid = (
-        (abs_diff3 > SAFE_LVL_ABS_DIFF_MAX) ||
-        (abs_diff3 < SAFE_LVL_ABS_DIFF_MIN) 
-    );
-
-    printf("%d %d %d\t%d %d %d\n", lvl1, lvl2, lvl3, is_monotonic, is_spikey, is_spikey_no_mid);
-    if (is_spikey & is_spikey_no_mid){
-        n_errs += 1;
+    /*printf("%d %d %d\t%d %d\t%d %d\n", lvl1, lvl2, lvl3, diff1, diff2, is_monotonic, is_spikey);*/
+    if (!is_monotonic || unsafe_rate){
+        return 0;
     }
-    else if (!is_monotonic) {
-        n_errs += !is_monotonic + (abs_diff3 == 0);
-    }
-    return n_errs;
+    return 1;
 }
 
-[[nodiscard]] static bool check_report_safety(const lvl_vec_t& rpt) noexcept {
-    lvl_int_t n_fails = 0;
+[[nodiscard]] static inline bool check_rate(const lvl_int_t abs_diff) {
+    return (abs_diff <= SAFE_LVL_ABS_DIFF_MAX) && (abs_diff >= SAFE_LVL_ABS_DIFF_MIN);
+}
+
+[[nodiscard]] static inline bool check_rpt_sign(const lvl_vec_t& rpt) {
+    int sum = 0;
+    for (std::size_t idx = 1; idx < rpt.size(); ++idx) {
+        sum += (rpt[idx] - rpt[idx-1]);
+    }
+    return std::signbit(sum);
+}
+
+[[nodiscard]] static inline bool check_monotonicity(const bool sign1, const bool sign2) {
+    return (sign1 == sign2);
+}
+
+[[nodiscard]] static bool check_report_safety_pt1(const lvl_vec_t& rpt) {
     for (std::size_t idx = 2; idx < rpt.size(); ++idx) {
         const lvl_int_t lvl1 = rpt[idx-2];
         const lvl_int_t lvl2 = rpt[idx-1];
         const lvl_int_t lvl3 = rpt[idx];
 
-        lvl_int_t fails =  is_safe(lvl1, lvl2, lvl3);
-        n_fails += fails;
-        printf("%d\n", n_fails);
-        if ((n_fails > 1)) {
+        if (!is_safe(lvl1, lvl2, lvl3)) return 0;
+    }
+    return 1;
+}
+
+[[nodiscard]] static bool check_report_safety_pt2(const lvl_vec_t& rpt) noexcept {
+    const bool sign_rpt = check_rpt_sign(rpt);
+    printf("%d ", sign_rpt);
+    print_arr(rpt);
+    for (std::size_t idx = 1; idx < rpt.size(); ++idx) {
+        const lvl_int_t lvl1 = rpt[idx-1];
+        const lvl_int_t lvl2 = rpt[idx];
+        const lvl_int_t diff = lvl2 - lvl1;
+        const lvl_int_t abs_diff = std::abs(diff);
+
+        // We need to grab an element ahead or behind, depending
+        // where we are in the moving window. This is how we check 
+        // if removing a report from the array causes it to pass 
+        // safety. 
+        const std::size_t idx_aux = (idx < rpt.size() - 1) ? idx + 1 : idx - 2;
+        const lvl_int_t diff_aux1 = (idx_aux > idx) ? rpt[idx_aux] - lvl2 : lvl1 - rpt[idx_aux];
+        const lvl_int_t diff_aux2 = (idx_aux > idx) ? rpt[idx_aux] - lvl1 : lvl2 - rpt[idx_aux];  
+        const lvl_int_t abs_diff_aux1 = std::abs(diff_aux1);
+        const lvl_int_t abs_diff_aux2 = std::abs(diff_aux2);
+
+        const bool valid_rate = check_rate(abs_diff);
+        const bool valid_rate_aux1 = check_rate(abs_diff_aux1);
+        const bool valid_rate_aux2 = check_rate(abs_diff_aux2);
+
+        const bool is_neg = std::signbit(diff);
+        const bool is_neg_aux1 = std::signbit(diff_aux1);
+        const bool is_neg_aux2 = std::signbit(diff_aux2);
+        const bool is_monotonic = check_monotonicity(is_neg, sign_rpt); 
+        const bool is_monotonic_aux1 = check_monotonicity(is_neg_aux1, sign_rpt);
+        const bool is_monotonic_aux2 = check_monotonicity(is_neg_aux2, sign_rpt);
+
+        if (valid_rate && is_monotonic) {
+            continue; 
+        }
+        else {
             return 0;
         }
+
     }
     return 1;
 }
 
 int main(int argc, const char** argv) {
-    /*rpt_vec_t reports;*/
-    /*int_t n_safe = 0;*/
-    /*reports.reserve(N_FILE_LINES);*/
-    /*if (parse_file(reports)) {*/
-    /*    for (const auto& rpt : reports) {*/
-    /*        n_safe += check_report_safety(rpt);*/
-    /*    }*/
+    rpt_vec_t reports;
+    int_t n_safe = 0;
+    reports.reserve(N_FILE_LINES);
+    if (parse_file(reports)) {
+        for (const auto& rpt : reports) {
+            n_safe += check_report_safety_pt1(rpt);
+        }
+    }
+    printf("Number of safe reports (no Problem Damper): %d\n", n_safe);
+
+    n_safe = 0;
+    for (const auto& rpt : reports) {
+        n_safe += check_report_safety_pt2(rpt);
+    }
+    printf("Number of safe reports (Problem Damper): %d\n", n_safe);
+    /*const rpt_vec_t reports = {*/
+    /*    {7, 6, 4, 2, 1},*/
+    /*    {1, 2, 7, 8, 9},*/
+    /*    {9, 7, 6, 2, 1},*/
+    /*    {1, 3, 2, 4, 5},*/
+    /*    {8, 6, 4, 4, 1},*/
+    /*    {1, 3, 6, 7, 9},*/
+    /*    {4, 10, 3, 2, 1},*/
+    /*    {10, 5, 4, 3, 2},*/
+    /*    {5, 4, 3, 2, 10}*/
+    /*};*/
+    /**/
+    /*for (const auto& rpt : reports) {*/
+    /*    bool safe = check_report_safety(rpt);*/
+    /*    printf("%d ", safe);*/
+    /*    print_arr(rpt);*/
     /*}*/
-    /*printf("Number of safe reports: %d\n", n_safe);*/
-    /*const lvl_vec_t rpt = {9, 7, 6, 2, 1};*/
-    /*const lvl_vec_t rpt = {1, 2, 7, 8, 9};*/
-    /*const lvl_vec_t rpt = {94, 96, 94, 93, 92, 89, 91};*/
-    /*const lvl_vec_t rpt = {8, 6, 4, 4, 1};*/
     // I've been trying so hard to do this without popping 
     // an element from an array and re-checking the result... but 
     // at this point I need to stop being stubborn
-    const lvl_vec_t rpt = {1, 3, 2, 4, 5};
-    bool safe = check_report_safety(rpt);
-    printf("%d\n", safe);
     return 0;
 }
