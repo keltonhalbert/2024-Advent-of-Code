@@ -15,6 +15,7 @@ constexpr int_t N_FILE_LINES = 1000;
 constexpr lvl_int_t SAFE_LVL_ABS_DIFF_MIN = 1;
 constexpr lvl_int_t SAFE_LVL_ABS_DIFF_MAX = 3;
 constexpr char DELIMITER = ' ';
+constexpr lvl_int_t N_MAX_DAMPS = 1;
 
 void print_arr(const lvl_vec_t& rpt) {
     printf("{ ");
@@ -91,9 +92,9 @@ void print_arr(const lvl_vec_t& rpt) {
 }
 
 [[nodiscard]] static inline bool check_rpt_sign(const lvl_vec_t& rpt) {
-    int sum = 0;
+    float sum = 0;
     for (std::size_t idx = 1; idx < rpt.size(); ++idx) {
-        sum += (rpt[idx] - rpt[idx-1]);
+        sum += std::signbit(rpt[idx] - rpt[idx-1]) ? -1 : 1;
     }
     return std::signbit(sum);
 }
@@ -115,8 +116,7 @@ void print_arr(const lvl_vec_t& rpt) {
 
 [[nodiscard]] static bool check_report_safety_pt2(const lvl_vec_t& rpt) noexcept {
     const bool sign_rpt = check_rpt_sign(rpt);
-    printf("%d ", sign_rpt);
-    print_arr(rpt);
+    lvl_int_t n_damps = 0; 
     for (std::size_t idx = 1; idx < rpt.size(); ++idx) {
         const lvl_int_t lvl1 = rpt[idx-1];
         const lvl_int_t lvl2 = rpt[idx];
@@ -143,9 +143,22 @@ void print_arr(const lvl_vec_t& rpt) {
         const bool is_monotonic = check_monotonicity(is_neg, sign_rpt); 
         const bool is_monotonic_aux1 = check_monotonicity(is_neg_aux1, sign_rpt);
         const bool is_monotonic_aux2 = check_monotonicity(is_neg_aux2, sign_rpt);
+        if (n_damps > N_MAX_DAMPS) {
+            return 0;
+        }
 
-        if (valid_rate && is_monotonic) {
+        if (valid_rate && is_monotonic && valid_rate_aux1 && is_monotonic_aux1) {
             continue; 
+        }
+        else if ((!valid_rate || !is_monotonic) && (valid_rate_aux1 && is_monotonic_aux1)) {
+            ++n_damps;
+            continue;
+        }
+        else if ((lvl1 == lvl2) && 
+                 (valid_rate_aux1 && is_monotonic_aux1) 
+        ) {
+            ++n_damps;
+            continue;
         }
         else {
             return 0;
@@ -156,38 +169,37 @@ void print_arr(const lvl_vec_t& rpt) {
 }
 
 int main(int argc, const char** argv) {
-    rpt_vec_t reports;
-    int_t n_safe = 0;
-    reports.reserve(N_FILE_LINES);
-    if (parse_file(reports)) {
-        for (const auto& rpt : reports) {
-            n_safe += check_report_safety_pt1(rpt);
-        }
-    }
-    printf("Number of safe reports (no Problem Damper): %d\n", n_safe);
-
-    n_safe = 0;
-    for (const auto& rpt : reports) {
-        n_safe += check_report_safety_pt2(rpt);
-    }
-    printf("Number of safe reports (Problem Damper): %d\n", n_safe);
-    /*const rpt_vec_t reports = {*/
-    /*    {7, 6, 4, 2, 1},*/
-    /*    {1, 2, 7, 8, 9},*/
-    /*    {9, 7, 6, 2, 1},*/
-    /*    {1, 3, 2, 4, 5},*/
-    /*    {8, 6, 4, 4, 1},*/
-    /*    {1, 3, 6, 7, 9},*/
-    /*    {4, 10, 3, 2, 1},*/
-    /*    {10, 5, 4, 3, 2},*/
-    /*    {5, 4, 3, 2, 10}*/
-    /*};*/
-    /**/
-    /*for (const auto& rpt : reports) {*/
-    /*    bool safe = check_report_safety(rpt);*/
-    /*    printf("%d ", safe);*/
-    /*    print_arr(rpt);*/
+    /*rpt_vec_t reports;*/
+    /*int_t n_safe = 0;*/
+    /*reports.reserve(N_FILE_LINES);*/
+    /*if (parse_file(reports)) {*/
+    /*    for (const auto& rpt : reports) {*/
+    /*        n_safe += check_report_safety_pt1(rpt);*/
+    /*    }*/
     /*}*/
+    /*printf("Number of safe reports (no Problem Damper): %d\n", n_safe);*/
+    /**/
+    /*n_safe = 0;*/
+    /*for (const auto& rpt : reports) {*/
+    /*    n_safe += check_report_safety_pt2(rpt);*/
+    /*}*/
+    /*printf("Number of safe reports (Problem Damper): %d\n", n_safe);*/
+    const rpt_vec_t reports = {
+        {7, 6, 4, 2, 1},
+        {1, 2, 7, 8, 9},
+        {9, 7, 6, 2, 1},
+        {1, 3, 2, 4, 5},
+        {8, 6, 4, 4, 1},
+        {1, 3, 6, 7, 9},
+        {4, 10, 3, 2, 1},
+        {10, 5, 4, 3, 2},
+        {5, 4, 3, 2, 10}
+    };
+    for (const auto& rpt : reports) {
+        bool safe = check_report_safety_pt2(rpt);
+        printf("%d ", safe);
+        print_arr(rpt);
+    }
     // I've been trying so hard to do this without popping 
     // an element from an array and re-checking the result... but 
     // at this point I need to stop being stubborn
