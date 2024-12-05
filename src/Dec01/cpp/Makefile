@@ -1,6 +1,6 @@
 # Define the compiler and flags
 CXX = g++
-CXXFLAGS = -Wall -Wpedantic -Werror -std=c++17 -O3 -flto
+CXXFLAGS = -Wall -Wpedantic -std=c++17 -O3 -flto
 
 TARGET = main
 SRC = main.cpp
